@@ -3,6 +3,7 @@ import { stdin as input, stdout as output } from 'node:process';
 import { ClaudeClient } from './client/index.js';
 import { MessageHistory } from './messages/index.js';
 import { ToolExecutor } from './tools/index.js';
+import { SandboxManager } from './sandbox/index.js';
 import { colors } from './ui/index.js';
 import type { Config } from './config/types.js';
 import type { ToolUseBlock } from './client/types.js';
@@ -14,13 +15,27 @@ export async function startRepl(
   initialPrompt?: string
 ): Promise<void> {
   const history = new MessageHistory();
-  const toolExecutor = new ToolExecutor(config);
+
+  // Get singleton SandboxManager instance (lazy initialization)
+  const sandboxManager = SandboxManager.getInstance();
+
+  // Create tool executor with sandbox manager
+  const toolExecutor = new ToolExecutor(config, sandboxManager);
 
   const rl = readline.createInterface({ input, output });
 
+  // Cleanup function for sandbox
+  const cleanup = async () => {
+    if (sandboxManager.isActive()) {
+      await sandboxManager.cleanup();
+    }
+  };
+
   // Handle Ctrl+C gracefully
-  process.on('SIGINT', () => {
-    console.log(colors.muted('\nGoodbye!'));
+  process.on('SIGINT', async () => {
+    console.log(colors.muted('\n'));
+    await cleanup();
+    console.log(colors.muted('Goodbye!'));
     rl.close();
     process.exit(0);
   });
@@ -28,11 +43,11 @@ export async function startRepl(
   // Print welcome banner
   console.log();
   console.log(colors.logo('╭─────────────────────────────────────╮'));
-  console.log(colors.logo('│          Claude CLI                 │'));
+  console.log(colors.logo('│       Claude CLI (Hybrid Mode)      │'));
   console.log(colors.logo('╰─────────────────────────────────────╯'));
   console.log();
   console.log(colors.muted('Type your message to chat with Claude.'));
-  console.log(colors.muted('Commands: /help, /clear, /exit'));
+  console.log(colors.muted('Commands: /help, /clear, /sandbox, /exit'));
   console.log();
 
   // Handle initial prompt if provided
@@ -55,7 +70,7 @@ export async function startRepl(
 
     // Handle special commands
     if (userInput.startsWith('/')) {
-      const shouldContinue = await handleCommand(userInput, history);
+      const shouldContinue = await handleCommand(userInput, history, sandboxManager);
       if (!shouldContinue) break;
       continue;
     }
@@ -63,6 +78,8 @@ export async function startRepl(
     await processUserMessage(userInput, client, history, toolExecutor, config);
   }
 
+  // Cleanup before exit
+  await cleanup();
   console.log(colors.muted('\nGoodbye!'));
   rl.close();
 }
@@ -133,7 +150,8 @@ async function processUserMessage(
 
 async function handleCommand(
   command: string,
-  history: MessageHistory
+  history: MessageHistory,
+  sandboxManager: SandboxManager
 ): Promise<boolean> {
   const cmd = command.toLowerCase().trim();
 
@@ -159,6 +177,14 @@ async function handleCommand(
       console.log(colors.info(`Estimated tokens: ${history.getTokenEstimate()}\n`));
       return true;
 
+    case '/sandbox':
+      if (sandboxManager.isActive()) {
+        console.log(colors.success('Sandbox is active ✓\n'));
+      } else {
+        console.log(colors.warning('Sandbox not initialized (will start on first remote command)\n'));
+      }
+      return true;
+
     default:
       console.log(colors.warning(`Unknown command: ${command}`));
       console.log(colors.muted('Type /help for available commands.\n'));
@@ -173,14 +199,21 @@ function printHelp(): void {
   console.log('  ' + colors.command('/help, /h') + '     - Show this help message');
   console.log('  ' + colors.command('/clear') + '       - Clear conversation history');
   console.log('  ' + colors.command('/history') + '     - Show conversation stats');
+  console.log('  ' + colors.command('/sandbox') + '     - Check sandbox status');
   console.log('  ' + colors.command('/exit, /q') + '    - Exit the CLI');
   console.log();
-  console.log(colors.highlight('Available Tools:'));
+  console.log(colors.highlight('Local Tools (your machine):'));
   console.log();
   console.log('  ' + colors.toolName('read_file') + '    - Read contents of a file');
   console.log('  ' + colors.toolName('write_file') + '   - Create or overwrite a file');
   console.log('  ' + colors.toolName('edit_file') + '    - Edit a file by string replacement');
-  console.log('  ' + colors.toolName('bash') + '         - Execute shell commands');
   console.log('  ' + colors.toolName('glob') + '         - Find files by pattern');
+  console.log('  ' + colors.toolName('local_bash') + '   - Run trusted local commands (git, npm)');
+  console.log();
+  console.log(colors.highlight('Remote Tools (E2B sandbox):'));
+  console.log();
+  console.log('  ' + colors.toolName('remote_bash') + '  - Execute code in isolated sandbox');
+  console.log('  ' + colors.toolName('sync_file') + '    - Upload file to sandbox');
+  console.log('  ' + colors.toolName('browser_fetch') + ' - Fetch web page content');
   console.log();
 }

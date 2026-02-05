@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+import { config as loadEnv } from 'dotenv';
+
+// Load .env FIRST before any other imports that might need env vars
+loadEnv();
+
 import { program } from 'commander';
 import { loadConfig } from './config/index.js';
 import { startRepl } from './repl.js';

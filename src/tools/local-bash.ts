@@ -3,18 +3,28 @@ import type { Tool, ToolDefinition, ToolResult } from './types.js';
 import type { Config } from '../config/types.js';
 import chalk from 'chalk';
 
-export class BashTool implements Tool {
+/**
+ * LocalBashTool - Execute trusted commands on the user's local machine
+ *
+ * Use for:
+ * - Git operations (git commit, git push, etc.)
+ * - Package management (npm install, pip install)
+ * - Local file operations that need shell features
+ *
+ * For running untrusted or generated code, use RemoteBashTool instead.
+ */
+export class LocalBashTool implements Tool {
   private config: Config;
 
   definition: ToolDefinition = {
-    name: 'bash',
-    description: 'Execute a shell command and return its output. Use for running commands, installing packages, git operations, building projects, etc.',
+    name: 'local_bash',
+    description: 'Execute trusted shell commands on the LOCAL machine (not sandboxed). Use for git operations, npm/pip install, and other trusted operations. For running code or untrusted commands, use remote_bash instead.',
     input_schema: {
       type: 'object' as const,
       properties: {
         command: {
           type: 'string',
-          description: 'The shell command to execute'
+          description: 'The shell command to execute locally'
         },
         timeout: {
           type: 'number',
@@ -35,7 +45,7 @@ export class BashTool implements Tool {
       timeout?: number;
     };
 
-    console.log(chalk.dim(`$ ${command}`));
+    console.log(chalk.dim(`[local] $ ${command}`));
 
     return new Promise((resolve) => {
       let stdout = '';
